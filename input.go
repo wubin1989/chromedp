@@ -84,12 +84,12 @@ func MouseClickNode(n *cdp.Node, opts ...MouseOption) Action {
 	})
 }
 
-// MouseMoveNode dispatches a mouse move/hover event at the center of a
+// MouseMoveNode dispatches a mouse move-in event at the center of a
 // specified node.
 //
 // Note that the window will be scrolled if the node is not within the window's
 // viewport.
-func MouseMoveNode(n *cdp.Node, opts ...chromedp.MouseOption) chromedp.Action {
+func MouseMoveInNode(n *cdp.Node, opts ...chromedp.MouseOption) chromedp.Action {
 	return ActionFunc(func(ctx context.Context) error {
 		var pos []int
 		err := EvaluateAsDevTools(snippet(scrollIntoViewJS, cashX(true), nil, n), &pos).Do(ctx)
@@ -119,6 +119,57 @@ func MouseMoveNode(n *cdp.Node, opts ...chromedp.MouseOption) chromedp.Action {
 			Type: input.MouseMoved,
 			X:    float64(x),
 			Y:    float64(y),
+		}
+
+		// apply opts
+		for _, o := range opts {
+			me = o(me)
+		}
+
+		if err := me.Do(ctx); err != nil {
+			return err
+		}
+
+		me.Type = input.MouseReleased
+		return me.Do(ctx)
+	})
+}
+
+// MouseMoveOutNode dispatches a mouse move-out event at the center of a
+// specified node.
+//
+// Note that the window will be scrolled if the node is not within the window's
+// viewport.
+func MouseMoveOutNode(n *cdp.Node, xOffset, yOffset int64, opts ...chromedp.MouseOption) chromedp.Action {
+	return ActionFunc(func(ctx context.Context) error {
+		var pos []int
+		err := EvaluateAsDevTools(snippet(scrollIntoViewJS, cashX(true), nil, n), &pos).Do(ctx)
+		if err != nil {
+			return err
+		}
+
+		box, err := dom.GetBoxModel().WithNodeID(n.NodeID).Do(ctx)
+		if err != nil {
+			return err
+		}
+
+		c := len(box.Content)
+		if c%2 != 0 || c < 1 {
+			return chromedp.ErrInvalidDimensions
+		}
+
+		var x, y int64
+		for i := 0; i < c; i += 2 {
+			x += int64(box.Content[i])
+			y += int64(box.Content[i+1])
+		}
+		x /= int64(c / 2)
+		y /= int64(c / 2)
+
+		me := &input.DispatchMouseEventParams{
+			Type: input.MouseMoved,
+			X:    float64(x + xOffset),
+			Y:    float64(y + yOffset),
 		}
 
 		// apply opts
