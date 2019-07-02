@@ -2,8 +2,6 @@ package chromedp
 
 import (
 	"context"
-	"github.com/chromedp/chromedp"
-
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/cdproto/input"
@@ -49,6 +47,34 @@ func MouseClickXY(x, y int64, opts ...MouseOption) Action {
 	})
 }
 
+// calculateNodeXY calculate Node X, Y position for further use.
+func calculateNodeXY(ctx context.Context, n *cdp.Node) (int64, int64, error) {
+	var pos []int
+	err := EvaluateAsDevTools(snippet(scrollIntoViewJS, cashX(true), nil, n), &pos).Do(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	box, err := dom.GetBoxModel().WithNodeID(n.NodeID).Do(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	c := len(box.Content)
+	if c%2 != 0 || c < 1 {
+		return 0, 0, ErrInvalidDimensions
+	}
+
+	var x, y int64
+	for i := 0; i < c; i += 2 {
+		x += int64(box.Content[i])
+		y += int64(box.Content[i+1])
+	}
+	x /= int64(c / 2)
+	y /= int64(c / 2)
+	return x, y, nil
+}
+
 // MouseClickNode dispatches a mouse left button click event at the center of a
 // specified node.
 //
@@ -56,65 +82,18 @@ func MouseClickXY(x, y int64, opts ...MouseOption) Action {
 // viewport.
 func MouseClickNode(n *cdp.Node, opts ...MouseOption) Action {
 	return ActionFunc(func(ctx context.Context) error {
-		var pos []int
-		err := EvaluateAsDevTools(snippet(scrollIntoViewJS, cashX(true), nil, n), &pos).Do(ctx)
+		x, y, err := calculateNodeXY(ctx, n)
 		if err != nil {
 			return err
 		}
-
-		box, err := dom.GetBoxModel().WithNodeID(n.NodeID).Do(ctx)
-		if err != nil {
-			return err
-		}
-
-		c := len(box.Content)
-		if c%2 != 0 || c < 1 {
-			return ErrInvalidDimensions
-		}
-
-		var x, y int64
-		for i := 0; i < c; i += 2 {
-			x += int64(box.Content[i])
-			y += int64(box.Content[i+1])
-		}
-		x /= int64(c / 2)
-		y /= int64(c / 2)
 
 		return MouseClickXY(x, y, opts...).Do(ctx)
 	})
 }
 
-// MouseMoveNode dispatches a mouse move-in event at the center of a
-// specified node.
-//
-// Note that the window will be scrolled if the node is not within the window's
-// viewport.
-func MouseMoveInNode(n *cdp.Node, opts ...chromedp.MouseOption) chromedp.Action {
+// MouseMoveToXY sends a mouse move event to the X, Y location.
+func MouseMoveToXY(x, y int64, opts ...MouseOption) Action {
 	return ActionFunc(func(ctx context.Context) error {
-		var pos []int
-		err := EvaluateAsDevTools(snippet(scrollIntoViewJS, cashX(true), nil, n), &pos).Do(ctx)
-		if err != nil {
-			return err
-		}
-
-		box, err := dom.GetBoxModel().WithNodeID(n.NodeID).Do(ctx)
-		if err != nil {
-			return err
-		}
-
-		c := len(box.Content)
-		if c%2 != 0 || c < 1 {
-			return chromedp.ErrInvalidDimensions
-		}
-
-		var x, y int64
-		for i := 0; i < c; i += 2 {
-			x += int64(box.Content[i])
-			y += int64(box.Content[i+1])
-		}
-		x /= int64(c / 2)
-		y /= int64(c / 2)
-
 		me := &input.DispatchMouseEventParams{
 			Type: input.MouseMoved,
 			X:    float64(x),
@@ -135,54 +114,35 @@ func MouseMoveInNode(n *cdp.Node, opts ...chromedp.MouseOption) chromedp.Action 
 	})
 }
 
-// MouseMoveOutNode dispatches a mouse move-out event at the center of a
+// MouseMoveToNode dispatches a mouse move event at the center of a
 // specified node.
 //
 // Note that the window will be scrolled if the node is not within the window's
 // viewport.
-func MouseMoveOutNode(n *cdp.Node, xOffset, yOffset int64, opts ...chromedp.MouseOption) chromedp.Action {
+func MouseMoveToNode(n *cdp.Node, opts ...MouseOption) Action {
 	return ActionFunc(func(ctx context.Context) error {
-		var pos []int
-		err := EvaluateAsDevTools(snippet(scrollIntoViewJS, cashX(true), nil, n), &pos).Do(ctx)
+		x, y, err := calculateNodeXY(ctx, n)
 		if err != nil {
 			return err
 		}
 
-		box, err := dom.GetBoxModel().WithNodeID(n.NodeID).Do(ctx)
+		return MouseMoveToXY(x, y, opts...).Do(ctx)
+	})
+}
+
+// MouseMoveOutNode dispatches a mouse move event out of the center of a
+// specified node.
+//
+// Note that the window will be scrolled if the node is not within the window's
+// viewport.
+func MouseMoveOutNode(n *cdp.Node, xOffset, yOffset int64, opts ...MouseOption) Action {
+	return ActionFunc(func(ctx context.Context) error {
+		x, y, err := calculateNodeXY(ctx, n)
 		if err != nil {
 			return err
 		}
 
-		c := len(box.Content)
-		if c%2 != 0 || c < 1 {
-			return chromedp.ErrInvalidDimensions
-		}
-
-		var x, y int64
-		for i := 0; i < c; i += 2 {
-			x += int64(box.Content[i])
-			y += int64(box.Content[i+1])
-		}
-		x /= int64(c / 2)
-		y /= int64(c / 2)
-
-		me := &input.DispatchMouseEventParams{
-			Type: input.MouseMoved,
-			X:    float64(x + xOffset),
-			Y:    float64(y + yOffset),
-		}
-
-		// apply opts
-		for _, o := range opts {
-			me = o(me)
-		}
-
-		if err := me.Do(ctx); err != nil {
-			return err
-		}
-
-		me.Type = input.MouseReleased
-		return me.Do(ctx)
+		return MouseMoveToXY(x + xOffset, y + yOffset, opts...).Do(ctx)
 	})
 }
 
